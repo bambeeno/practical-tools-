@@ -1,0 +1,305 @@
+# Optimizador de Cortes con Generación de Archivo de Texto Profesional
+
+import os
+from datetime import datetime
+
+# Configuración del tablero
+BOARD_WIDTH = 260  # cm
+BOARD_HEIGHT = 183  # cm
+
+# Versión final sin división media horizontal
+pieces_final = [
+    ("Tapa sup. central", 120, 40, 1),
+    ("Base inf. central", 120, 40, 1),
+    ("Laterales centrales", 40, 36.4, 2),
+    ("Divisorias internas centrales", 36.7, 36.4, 2),
+    ("Fondo central", 116.4, 36.4, 1),
+    ("Tapa sup. lateral", 50, 40, 2),
+    ("Base inf. lateral", 50, 40, 2),
+    ("Laterales laterales", 40, 36.4, 4),
+    ("Fondo lateral", 46.4, 36.4, 2),
+    ("Tapa basculante", 46.4, 36.4, 2),
+    ("Repisas dobles 50x20", 50, 20, 12),
+    ("Repisa sup. 220x20", 220, 20, 2),
+]
+
+def create_new_board():
+    """Crea un nuevo tablero"""
+    return {
+        "cuts": [],
+        "remaining_height": BOARD_HEIGHT,
+        "current_width": 0,
+        "current_row_height": 0
+    }
+
+def analyze_two_board_feasibility():
+    """Analiza si es posible meter todas las piezas en 2 tableros"""
+    print("=== ANÁLISIS DE VIABILIDAD PARA 2 TABLEROS ===\n")
+    
+    # Calcular área total necesaria
+    total_area = 0
+    total_pieces = 0
+    
+    print("📐 Área de cada tipo de pieza:")
+    for name, w, h, qty in pieces_final:
+        piece_area = w * h * qty
+        total_area += piece_area
+        total_pieces += qty
+        print(f"   • {name}: {w} x {h} cm x {qty} = {piece_area:.1f} cm²")
+    
+    available_area = 2 * BOARD_WIDTH * BOARD_HEIGHT
+    utilization = (total_area / available_area) * 100
+    
+    print(f"\n📊 Resumen:")
+    print(f"   Total piezas: {total_pieces}")
+    print(f"   Área total necesaria: {total_area:.1f} cm²")
+    print(f"   Área disponible (2 tableros): {available_area:.1f} cm²")
+    print(f"   Utilización teórica: {utilization:.1f}%")
+    
+    if utilization > 100:
+        print(f"    IMPOSIBLE: Necesitas {utilization-100:.1f}% más área")
+        return False, total_area, available_area, utilization
+    elif utilization > 90:
+        print(f"     MUY AJUSTADO: Solo {100-utilization:.1f}% de margen")
+        return True, total_area, available_area, utilization
+    else:
+        print(f"    VIABLE: {100-utilization:.1f}% de margen disponible")
+        return True, total_area, available_area, utilization
+
+def optimize_strips_method():
+    """Método de tiras: cortar tableros en tiras y optimizar"""
+    print("\n=== MÉTODO DE TIRAS OPTIMIZADO ===\n")
+    
+    # Identificar las alturas más comunes
+    heights = {}
+    for name, w, h, qty in pieces_final:
+        if h not in heights:
+            heights[h] = []
+        for i in range(qty):
+            piece_name = f"{name} ({i+1})" if qty > 1 else name
+            heights[h].append((piece_name, w, h))
+    
+    print("📏 Alturas encontradas:")
+    for h in sorted(heights.keys(), reverse=True):
+        total_width = sum(w for _, w, _ in heights[h])
+        pieces_count = len(heights[h])
+        print(f"   • {h} cm: {pieces_count} piezas, ancho total: {total_width} cm")
+    
+    # Estrategia: crear "tiras" por altura
+    boards = []
+    current_board = {"cuts": [], "remaining_height": BOARD_HEIGHT}
+    
+    for h in sorted(heights.keys(), reverse=True):
+        pieces_of_height = heights[h]
+        
+        # Si las piezas de esta altura no caben en el tablero actual
+        if current_board["remaining_height"] < h:
+            if len(boards) < 2:  # Solo permitir 2 tableros
+                boards.append(current_board)
+                current_board = {"cuts": [], "remaining_height": BOARD_HEIGHT}
+            else:
+                print(f"     No hay espacio para piezas de altura {h} cm")
+                continue
+        
+        # Dividir las piezas en "tiras" que quepan en el ancho
+        current_strip_width = 0
+        strip_height_used = False
+        
+        for piece_name, w, h in pieces_of_height:
+            if current_strip_width + w <= BOARD_WIDTH:
+                current_board["cuts"].append((piece_name, w, h))
+                current_strip_width += w
+            else:
+                # Empezar nueva tira si hay espacio
+                if not strip_height_used:
+                    current_board["remaining_height"] -= h
+                    strip_height_used = True
+                
+                current_strip_width = w
+                if current_board["remaining_height"] >= h:
+                    current_board["cuts"].append((piece_name, w, h))
+                    current_board["remaining_height"] -= h
+                else:
+                    # Crear nuevo tablero si es necesario
+                    if len(boards) < 2:
+                        boards.append(current_board)
+                        current_board = {"cuts": [], "remaining_height": BOARD_HEIGHT}
+                        current_board["cuts"].append((piece_name, w, h))
+                        current_board["remaining_height"] -= h
+                        current_strip_width = w
+                    else:
+                        print(f"     No cabe: {piece_name}")
+        
+        # Actualizar altura restante después de procesar todas las piezas de esta altura
+        if pieces_of_height and not strip_height_used:
+            current_board["remaining_height"] -= h
+    
+    if current_board["cuts"]:
+        boards.append(current_board)
+    
+    return boards
+
+def generate_professional_text_file(boards, total_area, available_area, utilization, filename="PLAN_CORTES_MUEBLE_TV.txt"):
+    """Genera un archivo de texto profesional para operativa"""
+    
+    now = datetime.now()
+    date_str = now.strftime("%d/%m/%Y")
+    time_str = now.strftime("%H:%M")
+    
+    content = []
+    content.append("="*70)
+    content.append("                    PLAN DE CORTES - MUEBLE DE TV")
+    content.append("="*70)
+    content.append("")
+    content.append(f"Fecha de generación: {date_str}")
+    content.append(f"Hora: {time_str}")
+    content.append("")
+    content.append("ESPECIFICACIONES DEL MATERIAL:")
+    content.append(f"• Tablero: {BOARD_WIDTH} x {BOARD_HEIGHT} cm")
+    content.append(f"• Tableros necesarios: {len(boards)}")
+    content.append(f"• Aprovechamiento: {100-utilization:.1f}%")
+    content.append(f"• Área total necesaria: {total_area:.1f} cm²")
+    content.append(f"• Área disponible: {available_area:.1f} cm²")
+    content.append("")
+    content.append("IMPORTANTE:")
+    content.append("• Respetar orientación de vetas de madera")
+    content.append("• Considerar grosor de sierra en medidas")
+    content.append("• Marcar cada pieza antes de cortar")
+    content.append("• Verificar medidas antes de cada corte")
+    content.append("")
+    content.append("="*70)
+    content.append("                        PLAN DE CORTES")
+    content.append("="*70)
+    
+    total_pieces_placed = 0
+    
+    for idx, board in enumerate(boards, 1):
+        altura_usada = BOARD_HEIGHT - board["remaining_height"]
+        board_area_used = sum(w * h for _, w, h in board["cuts"])
+        
+        content.append("")
+        content.append(f"TABLERO {idx}:")
+        content.append("-" * 50)
+        content.append(f"Altura utilizada: {altura_usada:.1f} cm de {BOARD_HEIGHT} cm")
+        content.append(f"Altura sobrante: {board['remaining_height']:.1f} cm")
+        content.append(f"Área utilizada: {board_area_used:.1f} cm²")
+        content.append(f"Cantidad de piezas: {len(board['cuts'])}")
+        content.append("")
+        content.append("LISTA DE CORTES:")
+        
+        for i, (name, w, h) in enumerate(board["cuts"], 1):
+            content.append(f"  {i:2d}. {name:<35} {w:6.1f} x {h:6.1f} cm")
+            total_pieces_placed += 1
+        
+        content.append("")
+        content.append("VERIFICACIÓN:")
+        content.append(f"☐ Tablero marcado y verificado")
+        content.append(f"☐ Todas las piezas cortadas: {len(board['cuts'])} piezas")
+        content.append(f"☐ Medidas verificadas")
+        content.append(f"☐ Orientación de vetas respetada")
+    
+    # Resumen final
+    total_pieces_needed = sum(qty for _, _, _, qty in pieces_final)
+    content.append("")
+    content.append("="*70)
+    content.append("                      RESUMEN FINAL")
+    content.append("="*70)
+    content.append(f"Total de piezas cortadas: {total_pieces_placed}/{total_pieces_needed}")
+    content.append(f"Estado: {'✓ COMPLETO' if total_pieces_placed == total_pieces_needed else '✗ INCOMPLETO'}")
+    content.append("")
+    content.append("CHECKLIST FINAL:")
+    content.append("☐ Todas las piezas cortadas")
+    content.append("☐ Medidas verificadas")
+    content.append("☐ Piezas marcadas correctamente")
+    content.append("☐ Sobras guardadas")
+    content.append("")
+    content.append("Operario: _________________________")
+    content.append("Fecha de corte: ___________________")
+    content.append("Supervisor: _______________________")
+    content.append("")
+    content.append("="*70)
+    
+    # Escribir archivo
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(content))
+        return filename
+    except Exception as e:
+        print(f"Error al generar archivo: {e}")
+        return None
+
+def main_two_boards():
+    """Función principal para optimizar en 2 tableros"""
+    print(" OPTIMIZADOR DE CORTES PARA MUEBLE DE TV")
+    print("=" * 50)
+    
+    # Análisis de viabilidad
+    is_viable, total_area, available_area, utilization = analyze_two_board_feasibility()
+    
+    if not is_viable:
+        print("\n No es posible meter todas las piezas en 2 tableros")
+        return None
+    
+    # Método de tiras optimizado
+    boards_strips = optimize_strips_method()
+    
+    print(f"\n RESULTADO FINAL:")
+    print(f"   Tableros utilizados: {len(boards_strips)}")
+    
+    total_pieces_placed = 0
+    total_area_used = 0
+    
+    for idx, board in enumerate(boards_strips, 1):
+        altura_usada = BOARD_HEIGHT - board["remaining_height"]
+        board_area_used = sum(w * h for _, w, h in board["cuts"])
+        total_area_used += board_area_used
+        
+        print(f"\n   TABLERO {idx}:")
+        print(f"      Altura utilizada: {altura_usada:.1f} cm de {BOARD_HEIGHT} cm")
+        print(f"      Altura restante: {board['remaining_height']:.1f} cm")
+        print(f"      Área utilizada: {board_area_used:.1f} cm²")
+        print(f"      Piezas ({len(board['cuts'])}):")
+        
+        for name, w, h in board["cuts"]:
+            print(f"         • {name}: {w} x {h} cm")
+            total_pieces_placed += 1
+    
+    total_pieces_needed = sum(qty for _, _, _, qty in pieces_final)
+    efficiency = (total_area_used / available_area) * 100
+    
+    print(f"\n ESTADÍSTICAS FINALES:")
+    print(f"   Piezas colocadas: {total_pieces_placed}/{total_pieces_needed}")
+    print(f"   Área total utilizada: {total_area_used:.1f} cm²")
+    print(f"   Eficiencia: {efficiency:.1f}%")
+    
+    if total_pieces_placed == total_pieces_needed:
+        print(f"    ¡TODAS LAS PIEZAS COLOCADAS EXITOSAMENTE!")
+        print(f"    Tu mueble de TV cabe perfectamente en {len(boards_strips)} tablero(s)")
+    else:
+        print(f"    Faltan {total_pieces_needed - total_pieces_placed} piezas")
+    
+    # Generar archivo de texto profesional
+    print(f"\n📄 GENERANDO ARCHIVO PARA OPERATIVA...")
+    filename = generate_professional_text_file(boards_strips, total_area, available_area, utilization)
+    
+    if filename:
+        print(f"    Archivo generado: {filename}")
+        print(f"    Listo para imprimir y entregar a operativa")
+    else:
+        print(f"    Error al generar archivo")
+    
+    return boards_strips
+
+# Ejecutar el análisis
+if __name__ == "__main__":
+    boards_result = main_two_boards()
+    
+    if boards_result:
+        print(f"\n ARCHIVO GENERADO:")
+        print("   • Formato profesional para operativa")
+        print("   • Incluye checklist de verificación")
+        print("   • Listo para imprimir")
+        print("   • Campos para firmas de operario y supervisor")
+
+# Ejecutar directamente
+boards_result = main_two_boards()
